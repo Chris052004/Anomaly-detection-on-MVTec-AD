@@ -1,0 +1,9 @@
+torch==2.13.0
+numpy
+pillow
+scikit-learn
+pyyaml
+pandas
+matplotlib
+jupyter
+pytest
