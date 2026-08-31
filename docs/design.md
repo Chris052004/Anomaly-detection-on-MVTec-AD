@@ -91,7 +91,10 @@ Decoder: speculare con `ConvTranspose2d`, BatchNorm, ReLU, fino a tornare a
   disponibile, alla maschera `ground_truth` corrispondente.
 - Preprocessing: resize a 256×256, normalizzazione in [0,1]. Nessuna data
   augmentation geometrica: molte categorie MVTec hanno oggetti con posa
-  fissa tra train e test (es. bottle, cable, screw).
+  fissa tra train e test (es. bottle, cable). Non tutte: `screw` in
+  particolare ha rotazione/posizione variabile da un'immagine all'altra —
+  vedi la sezione "Limiti noti" più sotto per l'impatto che questo ha sulla
+  valutazione.
 
 ## Training
 
@@ -136,6 +139,30 @@ Il notebook di report (`notebook/report.ipynb`) confronta i risultati del
 modello principale, di entrambe le ablation, e mostra qualche esempio
 visivo e le curve di training.
 
+## Limiti noti
+
+`screw` (e in misura minore `carpet`) hanno ROC-AUC image-level vicino o
+sotto il livello del caso (0.42 e 0.58), nonostante un ROC-AUC pixel-level
+eccellente per `screw` (0.97): la mappa di anomalia localizza correttamente
+il difetto quando c'è, ma lo score a livello di immagine intera (il massimo
+della mappa) non separa bene le immagini normali da quelle difettose.
+
+Causa: a differenza di quanto assunto sopra, `screw` non ha una posa
+realmente fissa tra le immagini (la vite compare ruotata/traslata), e il
+bottleneck da 100 numeri non riesce a ricostruire fedelmente la filettatura
+fine, producendo un errore di ricostruzione diffuso lungo tutto il bordo —
+alto sia su viti sane sia difettose. Il massimo della mappa non distingue
+questo errore diffuso "normale" da un vero difetto puntiforme.
+
+Sono stati testati tre approcci per calibrare lo score (baseline media sul
+train, filtro passa-alto gaussiano, erosione morfologica): i primi due
+hanno aiutato alcune categorie rigide (`bottle`, `transistor`) ma nessuno
+ha risolto `screw` in modo soddisfacente, e il filtro passa-alto ha
+addirittura peggiorato le altre categorie. Si è quindi mantenuto lo score
+originale (massimo della mappa raw). Una soluzione reale richiederebbe
+l'allineamento/registrazione dell'oggetto prima del confronto — fuori scope
+per questo progetto.
+
 ## Struttura del progetto
 
 ```
@@ -157,11 +184,3 @@ PROGETTO/
 ├── requirements.txt
 └── README.md
 ```
-
-## Fuori scope
-
-- Ricerca esaustiva di iperparametri.
-- Ablation su combinazioni diverse da quelle descritte.
-- Training distribuito/multi-GPU.
-- Data augmentation geometrica.
-- Servizio di inferenza/deploy in produzione.
