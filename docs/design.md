@@ -33,11 +33,18 @@ zipper). Ogni categoria ha:
   strutturali della classe "normale".
 - La mappa di anomalia è `1 - SSIM_map` tra immagine originale e
   ricostruzione: cattura differenze strutturali/di contrasto invece del
-  semplice errore pixel-per-pixel, producendo localizzazioni più pulite
-  rispetto a un autoencoder con sola loss MSE (approccio noto in
-  letteratura, Bergmann et al. 2018).
+  semplice errore pixel-per-pixel, con l'aspettativa (nota in letteratura,
+  Bergmann et al. 2018) di localizzazioni più pulite rispetto a un
+  autoencoder con sola loss MSE. L'ablation (vedi sotto) conferma questa
+  aspettativa solo in parte: aiuta il pixel-level nella maggioranza delle
+  categorie testate, ma su `grid` e `tile` la stessa componente SSIM
+  destabilizza l'ottimizzazione fino a un collasso del decoder — vedi
+  "Limiti noti".
 
-Alternative considerate e scartate:
+Alternative considerate e scartate (ragionamento a priori, prima di avere
+dati — l'ablation `mse_only` discussa in "Ablation" e "Limiti noti" mostra
+poi il quadro reale: confermato nella maggioranza delle categorie testate,
+con eccezioni concrete):
 - **Solo MSE**: localizzazione pixel-level più rumorosa sui bordi.
 - **Skip connection (stile U-Net)**: rischio che il difetto passi
   attraverso le skip connection e venga ricostruito troppo fedelmente,
@@ -103,7 +110,13 @@ Decoder: speculare con `ConvTranspose2d`, BatchNorm, ReLU, fino a tornare a
 - Iperparametri di default: batch size 32, ottimizzatore Adam (lr=1e-3),
   scheduler `ReduceLROnPlateau` (dimezza il learning rate se la loss di
   validazione ristagna per 10 epoche), massimo 200 epoche con early
-  stopping (patience 20), seed globale fisso per riproducibilità.
+  stopping (patience 20), seed globale fisso per riproducibilità. Sono
+  valori standard di letteratura, non ricavati da un tuning sistematico
+  per questo progetto — scelta deliberata: con 15 modelli indipendenti da
+  allenare, Adam più lo scheduler e l'early stopping si autocorreggono
+  (riducono il learning rate, si fermano quando serve) rendendo il valore
+  esatto di partenza meno critico di quanto lo sarebbe con SGD, dove un
+  tuning fine servirebbe davvero.
 - Checkpoint salvato in `outputs/<categoria>/model.pt` (solo il modello
   con la migliore loss di validazione); storia di training in
   `outputs/<categoria>/history.csv`.
@@ -125,15 +138,28 @@ Decoder: speculare con `ConvTranspose2d`, BatchNorm, ReLU, fino a tornare a
 
 ## Ablation (analisi comparativa)
 
-Due varianti allenate sulle stesse 5 categorie rappresentative (carpet,
-leather, bottle, screw, transistor — un mix di texture e oggetti rigidi),
-per isolare l'effetto di ogni scelta progettuale:
+Due varianti allenate sulle stesse categorie di ablation, per isolare
+l'effetto di ogni scelta progettuale:
 
-1. **Loss SSIM+MSE vs solo MSE**: quanto la componente SSIM migliora la
-   localizzazione del difetto rispetto al solo errore pixel-per-pixel.
-2. **Con denoising vs senza rumore in training**: quanto l'aggiunta di
-   rumore in training migliora la capacità del modello di NON ricostruire
-   fedelmente i difetti mai visti.
+1. **Loss SSIM+MSE vs solo MSE**: quanto (e in che direzione) la componente
+   SSIM cambia la localizzazione del difetto rispetto al solo errore
+   pixel-per-pixel — l'ipotesi di design è che aiuti, ma va verificato, non
+   assunto (risultato reale: effetto misto, vedi "Limiti noti").
+2. **Con denoising vs senza rumore in training**: quanto (e se) l'aggiunta
+   di rumore in training migliora la capacità del modello di NON
+   ricostruire fedelmente i difetti mai visti.
+
+Le categorie di ablation sono 7, in due gruppi distinti:
+
+- **5 originali** (`carpet`, `leather`, `bottle`, `screw`, `transistor`),
+  scelte alla cieca come mix rappresentativo di texture e oggetti rigidi,
+  prima di vedere qualunque risultato.
+- **2 aggiunte in seguito** (`grid`, `tile`), non alla cieca ma perché
+  mostrano un fallimento specifico della loss `ssim_mse` (collasso del
+  decoder, vedi "Limiti noti"). Tenute concettualmente separate dalle 5
+  originali nel report: includerle nel confronto rappresentativo dopo aver
+  visto che avvantaggiano `mse_only` sarebbe una selezione post-hoc del
+  campione, non una conferma della tendenza generale.
 
 Il notebook di report (`notebook/report.ipynb`) confronta i risultati del
 modello principale, di entrambe le ablation, e mostra qualche esempio
@@ -141,27 +167,97 @@ visivo e le curve di training.
 
 ## Limiti noti
 
-`screw` (e in misura minore `carpet`) hanno ROC-AUC image-level vicino o
-sotto il livello del caso (0.42 e 0.58), nonostante un ROC-AUC pixel-level
-eccellente per `screw` (0.97): la mappa di anomalia localizza correttamente
-il difetto quando c'è, ma lo score a livello di immagine intera (il massimo
-della mappa) non separa bene le immagini normali da quelle difettose.
+### Limite strutturale: lo score "massimo" non regge con un errore di ricostruzione sistematico
 
-Causa: a differenza di quanto assunto sopra, `screw` non ha una posa
-realmente fissa tra le immagini (la vite compare ruotata/traslata), e il
-bottleneck da 100 numeri non riesce a ricostruire fedelmente la filettatura
-fine, producendo un errore di ricostruzione diffuso lungo tutto il bordo —
-alto sia su viti sane sia difettose. Il massimo della mappa non distingue
-questo errore diffuso "normale" da un vero difetto puntiforme.
+Tre categorie hanno ROC-AUC image-level vicino o sotto il livello del caso:
+`pill` (0.423), `screw` (0.455), `metal_nut` (0.490) — nonostante un
+ROC-AUC pixel-level buono o eccellente per tutte e tre (0.913, 0.967,
+0.862). Non è un caso isolato di `screw`: è lo stesso meccanismo che si
+ripete con cause superficiali diverse.
 
-Sono stati testati tre approcci per calibrare lo score (baseline media sul
-train, filtro passa-alto gaussiano, erosione morfologica): i primi due
-hanno aiutato alcune categorie rigide (`bottle`, `transistor`) ma nessuno
-ha risolto `screw` in modo soddisfacente, e il filtro passa-alto ha
-addirittura peggiorato le altre categorie. Si è quindi mantenuto lo score
-originale (massimo della mappa raw). Una soluzione reale richiederebbe
-l'allineamento/registrazione dell'oggetto prima del confronto — fuori scope
-per questo progetto.
+Verificato quantitativamente confrontando lo score (massimo della mappa di
+anomalia) tra immagini "good" e difettose dello stesso test set:
+
+| Categoria | Score medio "good" | Score medio difettose |
+|---|---|---|
+| `pill` | 1.084 | 1.059 |
+| `metal_nut` | 1.635 | 1.624 |
+
+Le due distribuzioni sono praticamente sovrapposte — le immagini "good"
+hanno score medio addirittura leggermente più alto delle difettose. Lo
+score massimo non ha quasi nessuna relazione con la presenza reale di un
+difetto.
+
+Causa comune: il bottleneck da 100 numeri non riesce a ricostruire
+fedelmente un dettaglio fine ma sistematico della categoria, producendo un
+errore di ricostruzione presente su **ogni** immagine, sana o difettosa,
+che domina lo score massimo e ne annulla il potere discriminante. Il
+dettaglio che sfugge cambia da categoria a categoria:
+
+- **`pill`**: macchioline/speckle di colore naturali sulla superficie,
+  visibili anche nelle immagini "good", che il modello appiattisce — la
+  mappa di anomalia si accende su decine di questi punti indipendentemente
+  dal vero difetto.
+- **`metal_nut`**: bordi e riflessi metallici difficili da ricostruire con
+  precisione — la mappa si accende lungo tutto il contorno, sia su pezzi
+  sani che difettosi.
+- **`screw`**: a differenza di quanto assunto sopra, `screw` non ha una
+  posa realmente fissa tra le immagini (la vite compare ruotata/traslata),
+  e il bottleneck non riesce a ricostruire fedelmente la filettatura fine,
+  producendo un errore di ricostruzione diffuso lungo tutto il bordo.
+
+`leather` (blur della texture, vedi "Approccio") e `carpet` (image AUROC
+0.577, la seconda peggiore dopo questo terzetto) condividono probabilmente
+la stessa famiglia di causa, senza averla verificata con la stessa
+profondità.
+
+Su `screw` sono stati testati tre approcci per calibrare lo score
+(baseline media sul train, filtro passa-alto gaussiano, erosione
+morfologica): i primi due hanno aiutato alcune categorie rigide (`bottle`,
+`transistor`) ma nessuno ha risolto `screw` in modo soddisfacente, e il
+filtro passa-alto ha addirittura peggiorato le altre categorie. Si è
+quindi mantenuto lo score originale (massimo della mappa raw). Una
+soluzione reale richiederebbe catturare il dettaglio fine specifico di
+ogni categoria (bottleneck più ampio, loss percettiva, o
+allineamento/registrazione dell'oggetto per `screw`) — fuori scope per
+questo progetto.
+
+### `grid` e `tile`: collasso del decoder sotto `ssim_mse`
+
+Allenando `grid` e `tile` con la loss `ssim_mse` (sia in configurazione
+`main` sia in `no_denoising`, che usa comunque `ssim_mse`), il **decoder
+collassa**: dopo 1-3 epoche smette di dipendere dal vettore latente e
+produce sempre la stessa ricostruzione, quasi piatta, indipendentemente
+dall'immagine in input. Verificato empiricamente confrontando le
+ricostruzioni di immagini diverse: l'encoder continua a produrre latent
+diversi da immagine a immagine, il decoder no. La loss si blocca su un
+valore alto (~0.66-0.68) e non scende più.
+
+Non è un minimo naturale della loss: lo score SSIM tra la ricostruzione
+collassata e l'immagine reale è basso (0.17-0.24), molto peggio di una
+categoria sana come `bottle` (0.94-0.96) — è un blocco dell'ottimizzazione
+(il gradiente verso il decoder si azzera), non una scorciatoia premiata
+dalla loss. Causa più probabile: saturazione del `BatchNorm` nel decoder,
+più facile da innescare su categorie a bassa varianza locale (texture
+molto regolari).
+
+Passando a `mse_only` il collasso sparisce su entrambe le categorie, ma
+l'effetto sull'AUROC è sorprendentemente diverso: su `grid` migliora
+nettamente (image AUROC 0.793 → 0.840), su `tile` invece **peggiora**
+(0.909 → 0.610) nonostante il decoder torni a funzionare correttamente.
+Spiegazione più plausibile: un decoder collassato produce comunque
+un'immagine di riferimento fissa, e lo score di anomalia diventa di fatto
+"quanto l'immagine di test si discosta da questo riferimento fisso" — un
+meccanismo degenere ma non privo di segnale, che su `tile` (difetti ampi e
+contrastati) separa comunque bene normale da anomalo quasi per caso, su
+`grid` (difetti più sottili) no. Lezione: un image-AUROC alto da un modello
+con decoder collassato non prova che il modello funzioni come inteso — va
+sempre verificato che la ricostruzione dipenda davvero dall'input.
+
+Non risolto nel codice principale (richiederebbe cambiare la loss del
+modello per tutte le 15 categorie, perdendo la coerenza con `bottle` e
+`leather` dove `ssim_mse` funziona bene) — documentato come limite noto,
+con `grid`/`tile` allenate specificamente in `mse_only` per l'ablation.
 
 ## Struttura del progetto
 
