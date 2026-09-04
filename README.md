@@ -148,4 +148,9 @@ categorie), trascurabile sul pixel-level.
   metallici, o posa non fissa a seconda della categoria), presente sia su
   immagini normali che difettose.
 - Su `grid` e `tile`, la loss `ssim_mse` causa un collasso del decoder
-  (smette di dipendere dall'input) — risolto passando a `mse_only`.
+  (smette di dipendere dall'input, sia in `main` sia in `no_denoising`).
+  Non risolto nel modello principale (richiederebbe cambiare la loss per
+  tutte le 15 categorie, perdendo la coerenza con `bottle`/`leather` dove
+  `ssim_mse` funziona bene). Nell'ablation, passando a `mse_only` il
+  collasso sparisce ma l'effetto sull'AUROC è divergente: `grid` migliora
+  (0.793 → 0.840), `tile` peggiora (0.909 → 0.610).
