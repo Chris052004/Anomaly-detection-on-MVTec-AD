@@ -5,7 +5,7 @@ import torch
 from PIL import Image
 
 from anomaly_ae.config import Config
-from anomaly_ae.training import build_dataloaders, train_one_category
+from anomaly_ae.training import _is_improvement, build_dataloaders, train_one_category
 
 
 def _write_dummy_image(path: Path, size=(256, 256), color=(120, 60, 200)):
@@ -68,3 +68,16 @@ def test_train_one_category_checkpoint_is_loadable(tmp_path):
     model = ConvAutoencoder(config.latent_dim)
     state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict)  # non deve sollevare eccezioni
+
+
+def test_is_improvement_true_when_gain_exceeds_min_delta():
+    assert _is_improvement(val_loss=0.9, best_val_loss=1.0, min_delta=0.05) is True
+
+
+def test_is_improvement_false_when_gain_below_min_delta():
+    # calo di soli 0.00001, sotto la soglia: non deve contare come miglioramento
+    assert _is_improvement(val_loss=0.99999, best_val_loss=1.0, min_delta=1e-4) is False
+
+
+def test_is_improvement_false_when_loss_increases():
+    assert _is_improvement(val_loss=1.1, best_val_loss=1.0, min_delta=1e-4) is False

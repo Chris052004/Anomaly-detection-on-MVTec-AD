@@ -60,6 +60,13 @@ def _run_epoch(
     return total_loss / max(n_batches, 1)  # max(...,1) evita una divisione per zero
 
 
+def _is_improvement(val_loss: float, best_val_loss: float, min_delta: float) -> bool:
+    """Un calo di val_loss conta come miglioramento solo se supera min_delta: altrimenti
+    oscillazioni numeriche minuscole resetterebbero il contatore dell'early stopping
+    all'infinito, impedendogli di fermarsi anche quando la loss si e' di fatto stabilizzata."""
+    return val_loss < best_val_loss - min_delta
+
+
 def train_one_category(
     category: str,
     data_root: Path,
@@ -98,7 +105,7 @@ def train_one_category(
         pd.DataFrame(history_rows).to_csv(history_path, index=False)  # riscritto ogni epoca: niente perso se si interrompe
         print(f"  epoch {epoch}: train_loss={train_loss:.4f} val_loss={val_loss:.4f}")
 
-        if val_loss < best_val_loss:
+        if _is_improvement(val_loss, best_val_loss, config.early_stopping_min_delta):
             best_val_loss = val_loss
             epochs_without_improvement = 0
             torch.save(model.state_dict(), model_path)  # salva il modello migliore visto finora

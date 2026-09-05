@@ -19,6 +19,7 @@ def test_config_defaults_match_spec():
     assert cfg.learning_rate == 1e-3
     assert cfg.max_epochs == 200
     assert cfg.early_stopping_patience == 20
+    assert cfg.early_stopping_min_delta == 1e-4
     assert cfg.lr_scheduler_patience == 10
     assert cfg.lr_scheduler_factor == 0.5
     assert cfg.val_split == 0.1

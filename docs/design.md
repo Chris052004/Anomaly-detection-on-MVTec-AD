@@ -117,6 +117,12 @@ Decoder: speculare con `ConvTranspose2d`, BatchNorm, ReLU, fino a tornare a
   (riducono il learning rate, si fermano quando serve) rendendo il valore
   esatto di partenza meno critico di quanto lo sarebbe con SGD, dove un
   tuning fine servirebbe davvero.
+- L'early stopping richiede un miglioramento di almeno
+  `early_stopping_min_delta` (default `1e-4`) per resettare il contatore
+  della pazienza: senza questa soglia, categorie con una loss quasi piatta
+  (es. `wood`) trovano "miglioramenti" di ordine `1e-5` che azzerano il
+  contatore all'infinito, impedendo all'early stopping di attivarsi anche
+  quando la loss si è di fatto già stabilizzata.
 - Checkpoint salvato in `outputs/<categoria>/model.pt` (solo il modello
   con la migliore loss di validazione); storia di training in
   `outputs/<categoria>/history.csv`.

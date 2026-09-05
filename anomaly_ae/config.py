@@ -27,6 +27,7 @@ class Config:
     learning_rate: float = 1e-3    # passo di aggiornamento dei pesi (ottimizzatore Adam)
     max_epochs: int = 200          # numero massimo di epoche di training
     early_stopping_patience: int = 20   # dopo quante epoche senza miglioramento ci si ferma
+    early_stopping_min_delta: float = 1e-4  # sotto questa soglia un calo di val_loss non conta come miglioramento
     lr_scheduler_patience: int = 10     # dopo quante epoche senza miglioramento si riduce il learning rate
     lr_scheduler_factor: float = 0.5    # di quanto si riduce il learning rate (es. dimezzato)
     val_split: float = 0.1         # frazione delle immagini "good" tenuta da parte per la validazione
